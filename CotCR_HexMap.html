@@ -64,6 +64,41 @@
 
     button:hover { background: #efe3d3; }
     button:active { transform: translateY(1px); }
+    select, input[type="text"] {
+      font-family: inherit;
+      border: 1px solid #8e7b65;
+      background: #f9f1e8;
+      color: var(--ink);
+      padding: 0.35rem 0.5rem;
+      border-radius: 6px;
+    }
+
+    .route-tools {
+      margin-top: 0.6rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      align-items: center;
+      font-size: 0.9rem;
+    }
+
+    .route-summary {
+      width: 100%;
+      background: rgba(255, 248, 237, 0.85);
+      border: 1px solid #d3c2ae;
+      border-radius: 8px;
+      padding: 0.45rem 0.55rem;
+      line-height: 1.35;
+    }
+
+    .route-summary .small {
+      color: #5a4a3b;
+      font-size: 0.85rem;
+    }
+
+    .route-summary .route-note {
+      margin-top: 0.2rem;
+    }
 
     #mapWrap {
       flex: 1;
@@ -224,6 +259,15 @@
       <button id="clearExploredBtn">Clear Explored</button>
       <button id="exportBtn">Export PNG</button>
     </div>
+    <div class="route-tools">
+      <label for="quickRoutesSelect"><strong>Quick Routes:</strong></label>
+      <select id="quickRoutesSelect" aria-label="Quick route presets">
+        <option value="">Choose route…</option>
+      </select>
+      <label for="terrainNoteInput">Terrain note:</label>
+      <input id="terrainNoteInput" type="text" size="44" placeholder="e.g., 3 days normal accounting for terrain" />
+      <div id="quickRouteSummary" class="route-summary">Select a route preset to center the camera and estimate travel time.</div>
+    </div>
   </header>
 
   <div id="mapWrap">
@@ -271,9 +315,31 @@
       const modalStatus = document.getElementById('modalStatus');
       const modalNotes = document.getElementById('modalNotes');
       const toggleExploredBtn = document.getElementById('toggleExploredBtn');
+      const quickRoutesSelect = document.getElementById('quickRoutesSelect');
+      const quickRouteSummary = document.getElementById('quickRouteSummary');
+      const terrainNoteInput = document.getElementById('terrainNoteInput');
 
-      const exploredSet = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
-      let viewMode = localStorage.getItem(VIEW_MODE_KEY) || 'gm';
+      function getStoredArray(key) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function getStoredText(key, fallback = '') {
+        try {
+          return localStorage.getItem(key) || fallback;
+        } catch {
+          return fallback;
+        }
+      }
+
+      const exploredSet = new Set(getStoredArray(STORAGE_KEY));
+      let viewMode = getStoredText(VIEW_MODE_KEY, 'gm');
       let selectedHexKey = null;
 
       const keyedLocations = [
@@ -306,6 +372,15 @@
       ];
 
       const locationByKey = new Map(keyedLocations.map((loc) => [`${loc.row},${loc.col}`, loc]));
+      const locationByCode = new Map(keyedLocations.map((loc) => [loc.code, loc]));
+      const MILES_PER_HEX = 12;
+      const paceMilesPerDay = { slow: 18, normal: 24, fast: 30 };
+      const quickRoutePresets = [
+        { id: 'w1-cr13', fromCode: 'W1', toCode: 'CR13', terrainNote: '3 days normal accounting for terrain.' },
+        { id: 'cr1-w1', fromCode: 'CR1', toCode: 'W1', terrainNote: '1 day normal if roads stay clear.' },
+        { id: 'w1-cr2', fromCode: 'W1', toCode: 'CR2', terrainNote: '1 day normal with light brush and stream crossings.' }
+      ];
+      let activeQuickRoute = null;
 
       const offsetX = HEX_SIZE + 24;
       const offsetY = HEX_SIZE + 24;
@@ -317,11 +392,12 @@
       const terrainG = el('g');
       const gridG = el('g');
       const routesG = el('g');
+      const quickRouteG = el('g');
       const overlayG = el('g');
       const poiG = el('g');
       const labelsG = el('g');
 
-      rootG.append(terrainG, gridG, routesG, overlayG, poiG, labelsG);
+      rootG.append(terrainG, gridG, routesG, quickRouteG, overlayG, poiG, labelsG);
       svg.append(rootG);
 
       let overlayVisible = false;
@@ -360,11 +436,19 @@
       }
 
       function saveExplored() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([...exploredSet]));
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify([...exploredSet]));
+        } catch {
+          // Storage can be blocked in some file:// or privacy-hardened contexts.
+        }
       }
 
       function saveViewMode() {
-        localStorage.setItem(VIEW_MODE_KEY, viewMode);
+        try {
+          localStorage.setItem(VIEW_MODE_KEY, viewMode);
+        } catch {
+          // Storage can be blocked in some file:// or privacy-hardened contexts.
+        }
       }
 
       function updateViewModeButton() {
@@ -541,14 +625,116 @@
         terrainG.append(el('rect', { x: 0, y: 0, width: mapWidth, height: mapHeight, class: 'wilderness-base' }));
       }
 
+      function axialDistance(a, b) {
+        const dq = a.col - b.col;
+        const dr = a.row - b.row;
+        return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+      }
+
+      function daysAtPace(distanceMiles, pace) {
+        return (distanceMiles / paceMilesPerDay[pace]).toFixed(1);
+      }
+
+      function drawQuickRouteLine(fromLoc, toLoc) {
+        quickRouteG.replaceChildren();
+        const from = hexCenter(fromLoc.row, fromLoc.col);
+        const to = hexCenter(toLoc.row, toLoc.col);
+        quickRouteG.append(el('line', {
+          x1: from.x,
+          y1: from.y,
+          x2: to.x,
+          y2: to.y,
+          stroke: '#b64040',
+          'stroke-width': 4,
+          'stroke-dasharray': '9 6',
+          'stroke-linecap': 'round',
+          opacity: 0.95
+        }));
+      }
+
+      function centerCameraOnRoute(fromLoc, toLoc) {
+        const from = hexCenter(fromLoc.row, fromLoc.col);
+        const to = hexCenter(toLoc.row, toLoc.col);
+        const rect = mapWrap.getBoundingClientRect();
+        const routeSpanX = Math.abs(from.x - to.x) + HEX_SIZE * 4;
+        const routeSpanY = Math.abs(from.y - to.y) + HEX_SIZE * 4;
+        const fitScale = Math.min(rect.width / routeSpanX, rect.height / routeSpanY);
+        scale = Math.max(0.55, Math.min(3.2, fitScale));
+        const midpoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+        translateX = rect.width / 2 - midpoint.x * scale;
+        translateY = rect.height / 2 - midpoint.y * scale;
+        applyTransform();
+      }
+
+      function updateQuickRouteSummary(preset) {
+        if (!preset) {
+          quickRouteSummary.textContent = 'Select a route preset to center the camera and estimate travel time.';
+          return;
+        }
+
+        const fromLoc = locationByCode.get(preset.fromCode);
+        const toLoc = locationByCode.get(preset.toCode);
+        if (!fromLoc || !toLoc) {
+          quickRouteSummary.textContent = 'Unable to resolve one or more route endpoints from keyed locations.';
+          return;
+        }
+
+        const hexes = axialDistance(fromLoc, toLoc);
+        const miles = hexes * MILES_PER_HEX;
+        const normalDays = daysAtPace(miles, 'normal');
+        const fastDays = daysAtPace(miles, 'fast');
+        const slowDays = daysAtPace(miles, 'slow');
+        const note = terrainNoteInput.value.trim();
+        quickRouteSummary.innerHTML = `
+          <strong>${fromLoc.code} → ${toLoc.code}</strong> (${fromLoc.name} to ${toLoc.name}) · ${hexes} hexes (${miles} mi) · ${normalDays} days normal
+          <div class="small">Fast: ${fastDays} days · Slow: ${slowDays} days</div>
+          <div class="small route-note"><strong>Terrain-adjusted note:</strong> ${note || '<em>Add a terrain note above.</em>'}</div>
+        `;
+      }
+
+      function applyQuickRoutePreset(presetId) {
+        const preset = quickRoutePresets.find((item) => item.id === presetId) || null;
+        activeQuickRoute = preset;
+        if (!preset) {
+          terrainNoteInput.value = '';
+          quickRouteG.replaceChildren();
+          updateQuickRouteSummary(null);
+          return;
+        }
+        const fromLoc = locationByCode.get(preset.fromCode);
+        const toLoc = locationByCode.get(preset.toCode);
+        if (!fromLoc || !toLoc) {
+          updateQuickRouteSummary(preset);
+          return;
+        }
+        terrainNoteInput.value = preset.terrainNote || '';
+        drawQuickRouteLine(fromLoc, toLoc);
+        centerCameraOnRoute(fromLoc, toLoc);
+        updateQuickRouteSummary(preset);
+      }
+
       drawWildernessTexture();
       drawFoothills();
       drawHexGrid();
       drawRoutesAndRiver();
       drawIronCollarOverlay();
       drawLocations();
+      quickRoutePresets.forEach((preset) => {
+        const opt = document.createElement('option');
+        opt.value = preset.id;
+        opt.textContent = `${preset.fromCode} → ${preset.toCode}`;
+        quickRoutesSelect.append(opt);
+      });
       updateViewModeButton();
       applyViewModeToLocations();
+
+      quickRoutesSelect.addEventListener('change', (e) => {
+        applyQuickRoutePreset(e.target.value);
+      });
+      terrainNoteInput.addEventListener('input', () => {
+        if (activeQuickRoute) activeQuickRoute.terrainNote = terrainNoteInput.value;
+        updateQuickRouteSummary(activeQuickRoute);
+      });
 
       modal.addEventListener('click', (e) => {
         if (e.target === modal) modal.style.display = 'none';
