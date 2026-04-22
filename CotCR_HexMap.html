@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crown of the Crystalmir Reaches — Hex Map</title>
+  <style>
+    :root {
+      --parchment: #F5EEE6;
+      --ink: #2f2a24;
+      --grid: #9f8c74;
+      --explored: rgba(110, 168, 105, 0.28);
+      --unexplored: rgba(245, 238, 230, 0.92);
+      --overlay-red: rgba(160, 20, 20, 0.10);
+      --river: #4a89c7;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background: radial-gradient(circle at 15% 10%, #fff8f0 0%, var(--parchment) 45%, #ece2d4 100%);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 0.9rem 1rem;
+      border-bottom: 1px solid #d3c2ae;
+      background: rgba(255, 252, 245, 0.8);
+      backdrop-filter: blur(2px);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1rem, 2.5vw, 1.5rem);
+      letter-spacing: 0.02em;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.6rem;
+    }
+
+    button {
+      font-family: inherit;
+      border: 1px solid #8e7b65;
+      background: #f9f1e8;
+      color: var(--ink);
+      padding: 0.4rem 0.7rem;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.12s ease;
+    }
+
+    button:hover { background: #efe3d3; }
+    button:active { transform: translateY(1px); }
+
+    #mapWrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: transparent;
+      user-select: none;
+    }
+
+    .hex {
+      fill: var(--unexplored);
+      stroke: var(--grid);
+      stroke-width: 1;
+      transition: fill 0.2s ease;
+      cursor: pointer;
+    }
+
+    .hex.explored { fill: var(--explored); }
+    .hex:hover { stroke: #6f5f4f; stroke-width: 1.3; }
+
+    .terrain-foothills {
+      fill: rgba(179, 141, 91, 0.20);
+      stroke: rgba(139, 95, 53, 0.35);
+      stroke-width: 0.5;
+    }
+
+    .river {
+      fill: none;
+      stroke: var(--river);
+      stroke-width: 4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.9;
+    }
+
+    .road-main {
+      fill: none;
+      stroke: #8a6d44;
+      stroke-width: 3;
+      stroke-linecap: round;
+    }
+
+    .road-fade {
+      fill: none;
+      stroke: #8a6d44;
+      stroke-width: 2.5;
+      stroke-dasharray: 8 8;
+      stroke-linecap: round;
+      opacity: 0.8;
+    }
+
+    .label {
+      font-size: 13px;
+      fill: #352d26;
+      paint-order: stroke;
+      stroke: rgba(245,238,230,0.85);
+      stroke-width: 2px;
+      pointer-events: none;
+    }
+
+    .poi { cursor: pointer; }
+    .poi.base { fill: #2f9e44; }
+    .poi.landmark { fill: #d4a019; }
+    .poi.standard { fill: #2a78b8; }
+    .poi.secret, .poi.hidden, .poi.low { fill: #b23838; }
+
+    .poi-ring {
+      stroke: #3a2f22;
+      stroke-width: 1.2;
+    }
+
+    .highlight {
+      stroke: #174d20;
+      stroke-width: 2;
+      fill: rgba(47,158,68,0.2);
+      pointer-events: none;
+    }
+
+    .legend {
+      position: absolute;
+      right: 10px;
+      bottom: 10px;
+      background: rgba(255, 248, 237, 0.92);
+      border: 1px solid #bca78f;
+      border-radius: 8px;
+      padding: 0.6rem 0.7rem;
+      max-width: min(300px, 90vw);
+      font-size: 0.85rem;
+    }
+
+    .legend h3 {
+      margin: 0 0 0.4rem;
+      font-size: 0.92rem;
+    }
+
+    .legend-row { display: flex; align-items: center; gap: 0.45rem; margin: 0.22rem 0; }
+    .swatch { width: 11px; height: 11px; border-radius: 50%; border: 1px solid #5c4a38; }
+
+    #modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(22, 17, 12, 0.48);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      z-index: 20;
+    }
+
+    .modal-card {
+      width: min(560px, 95vw);
+      max-height: 88vh;
+      overflow: auto;
+      background: #fff7ed;
+      border: 1px solid #9c8265;
+      border-radius: 10px;
+      box-shadow: 0 14px 35px rgba(0,0,0,0.3);
+      padding: 1rem;
+    }
+
+    .modal-card h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.2rem;
+    }
+
+    .meta { font-size: 0.94rem; color: #554536; margin: 0.2rem 0; }
+    .gm { margin-top: 0.65rem; line-height: 1.4; }
+    .close-row { margin-top: 0.8rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+    .muted { color: #685749; font-style: italic; }
+
+    @media (max-width: 700px) {
+      .legend { font-size: 0.78rem; }
+      .label { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Crown of the Crystalmir Reaches — Campaign Hex Map (24×20, 12 mi/hex)</h1>
+    <div class="controls">
+      <button id="resetViewBtn">Reset View</button>
+      <button id="toggleOverlayBtn">Toggle Iron Collar Overlay</button>
+      <button id="clearExploredBtn">Clear Explored</button>
+      <button id="exportBtn">Export PNG</button>
+    </div>
+  </header>
+
+  <div id="mapWrap">
+    <svg id="mapSvg" aria-label="Hex map of Crown of the Crystalmir Reaches"></svg>
+
+    <aside class="legend">
+      <h3>Legend</h3>
+      <div class="legend-row"><span class="swatch" style="background:#2f9e44"></span>Base</div>
+      <div class="legend-row"><span class="swatch" style="background:#d4a019"></span>Landmark</div>
+      <div class="legend-row"><span class="swatch" style="background:#2a78b8"></span>Standard</div>
+      <div class="legend-row"><span class="swatch" style="background:#b23838"></span>Low / Secret / Hidden</div>
+      <div class="legend-row"><span class="swatch" style="background:var(--river)"></span>Crystalmir River</div>
+      <div class="legend-row"><span class="swatch" style="background:rgba(160,20,20,0.10)"></span>Iron Collar patrol pressure zone</div>
+      <div class="legend-row"><span class="swatch" style="background:var(--explored)"></span>Explored hex</div>
+    </aside>
+  </div>
+
+  <div id="modal" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 id="modalTitle">Hex</h2>
+      <div id="modalMeta" class="meta"></div>
+      <div id="modalStatus" class="meta"></div>
+      <div id="modalNotes" class="gm"></div>
+      <div class="close-row">
+        <button id="toggleExploredBtn">Toggle Explored</button>
+        <button id="closeModalBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const COLS = 24;
+      const ROWS = 20;
+      const HEX_SIZE = 28;
+      const SQRT3 = Math.sqrt(3);
+      const STORAGE_KEY = 'cotcr_explored_hexes_v1';
+
+      const svg = document.getElementById('mapSvg');
+      const mapWrap = document.getElementById('mapWrap');
+      const modal = document.getElementById('modal');
+      const modalTitle = document.getElementById('modalTitle');
+      const modalMeta = document.getElementById('modalMeta');
+      const modalStatus = document.getElementById('modalStatus');
+      const modalNotes = document.getElementById('modalNotes');
+      const toggleExploredBtn = document.getElementById('toggleExploredBtn');
+
+      const exploredSet = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
+      let selectedHexKey = null;
+
+      const keyedLocations = [
+        { code: 'W1', row: 5, col: 7, type: 'Base', name: 'Watchford Station', status: 'Discovered', notes: 'Base camp. Gorrak & Thornwatch.' },
+        { code: 'CR1', row: 3, col: 5, type: 'Landmark', name: 'Brightwatch Hall', status: 'Discovered', notes: 'Starting manor. Sir Brynn.' },
+        { code: 'CR2', row: 7, col: 9, type: 'Standard', name: "Hermit\'s Hollow", status: 'Undiscovered', notes: 'Keldin Leafshadow. Potion trader.' },
+        { code: 'CR3', row: 6, col: 11, type: 'Low', name: 'Spider Nest', status: 'Undiscovered', notes: 'Giant trapdoor spider CR 2. 25ft pit.' },
+        { code: 'CR4', row: 8, col: 8, type: 'Landmark', name: 'Crystalmir Ford', status: 'Undiscovered', notes: 'River crossing. DC 12 Athletics.' },
+        { code: 'CR5', row: 9, col: 6, type: 'Standard', name: 'Abandoned Border Fort', status: 'Undiscovered', notes: 'Fort Sentinel. Solamnic ruins. Letter clue.' },
+        { code: 'CR6', row: 10, col: 10, type: 'Secret', name: 'Dead Soldier', status: 'Undiscovered', notes: 'Iron Collar body. Journal entry. Book 2 clue.' },
+        { code: 'CR7', row: 8, col: 10, type: 'Standard', name: 'Trap-Filled Glade', status: 'Undiscovered', notes: 'Spike snares. DC 17 Survival to clear.' },
+        { code: 'CR8', row: 9, col: 11, type: 'Standard', name: 'Dead Scout', status: 'Undiscovered', notes: 'Map in boot points to CR13.' },
+        { code: 'CR9', row: 10, col: 9, type: 'Hidden', name: 'Kender Camp', status: 'Undiscovered', notes: 'Pip & Wicker. Story trade.' },
+        { code: 'CR10', row: 11, col: 12, type: 'Low', name: 'Radish Flats', status: 'Undiscovered', notes: '4 kobolds. Food source.' },
+        { code: 'CR11', row: 12, col: 10, type: 'Low', name: 'Hot Springs', status: 'Undiscovered', notes: 'Rest location. Morale point.' },
+        { code: 'CR12', row: 13, col: 8, type: 'Standard', name: 'Temple of Mishakal', status: 'Undiscovered', notes: 'Overgrown pre-Cataclysm temple. Chapter 3.' },
+        { code: 'CR13', row: 11, col: 13, type: 'Standard', name: 'Iron Collar Field Camp', status: 'Undiscovered', notes: "Kara Vane\'s forward base. Part 4 climax." },
+        { code: 'CR14', row: 12, col: 11, type: 'Standard', name: 'Old Silver Vein', status: 'Undiscovered', notes: 'Resource site. Mining required.' },
+        { code: 'CR15', row: 14, col: 13, type: 'Secret', name: 'Ergothian Cache', status: 'Undiscovered', notes: '150 gp + ceremonial dagger.' },
+        { code: 'EB1', row: 6, col: 8, type: 'Secret', name: 'Ergothian Stone 1', status: 'Undiscovered', notes: 'Boundary marker.' },
+        { code: 'EB2', row: 9, col: 9, type: 'Secret', name: 'Ergothian Stone 2', status: 'Undiscovered', notes: 'Boundary marker.' },
+        { code: 'EB3', row: 12, col: 13, type: 'Secret', name: 'Ergothian Stone 3', status: 'Undiscovered', notes: 'Boundary marker.' },
+        { code: 'EB4', row: 15, col: 11, type: 'Secret', name: 'Ergothian Stone 4', status: 'Undiscovered', notes: 'Boundary marker.' },
+        { code: 'EB5', row: 16, col: 16, type: 'Secret', name: 'Ergothian Stone 5', status: 'Undiscovered', notes: 'Boundary marker.' },
+        { code: 'EB6', row: 18, col: 9, type: 'Secret', name: 'Ergothian Stone 6', status: 'Undiscovered', notes: 'Boundary marker.' },
+        { code: 'IC1', row: 8, col: 12, type: 'Secret', name: 'Iron Collar Patrol Route', status: 'Undiscovered', notes: 'Patrol waypoint.' },
+        { code: 'IC2', row: 10, col: 14, type: 'Secret', name: 'Iron Collar Waypost', status: 'Undiscovered', notes: 'Supply cache.' },
+        { code: 'IC3', row: 12, col: 15, type: 'Secret', name: 'Iron Collar Scout Post', status: 'Undiscovered', notes: 'Observation position.' },
+        { code: 'TV1', row: 7, col: 15, type: 'Secret', name: "Thornwatch\'s Village", status: 'Undiscovered', notes: 'Destroyed 352 AC. Dense red marks.' }
+      ];
+
+      const locationByKey = new Map(keyedLocations.map((loc) => [`${loc.row},${loc.col}`, loc]));
+
+      const offsetX = HEX_SIZE + 24;
+      const offsetY = HEX_SIZE + 24;
+      const mapWidth = offsetX * 2 + (COLS - 1) * SQRT3 * HEX_SIZE + SQRT3 * HEX_SIZE;
+      const mapHeight = offsetY * 2 + (ROWS - 1) * 1.5 * HEX_SIZE + 2 * HEX_SIZE;
+      svg.setAttribute('viewBox', `0 0 ${mapWidth} ${mapHeight}`);
+
+      const rootG = el('g');
+      const terrainG = el('g');
+      const gridG = el('g');
+      const routesG = el('g');
+      const overlayG = el('g');
+      const poiG = el('g');
+      const labelsG = el('g');
+
+      rootG.append(terrainG, gridG, routesG, overlayG, poiG, labelsG);
+      svg.append(rootG);
+
+      let overlayVisible = false;
+      overlayG.style.display = 'none';
+
+      function el(name, attrs = {}) {
+        const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+        Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+        return node;
+      }
+
+      function hexCenter(row, col) {
+        const q = col - 1;
+        const r = row - 1;
+        return {
+          x: offsetX + HEX_SIZE * SQRT3 * (q + r / 2),
+          y: offsetY + HEX_SIZE * 1.5 * r
+        };
+      }
+
+      function hexPoints(cx, cy, size = HEX_SIZE) {
+        const pts = [];
+        for (let i = 0; i < 6; i++) {
+          const angle = (60 * i - 30) * Math.PI / 180;
+          pts.push(`${(cx + size * Math.cos(angle)).toFixed(2)},${(cy + size * Math.sin(angle)).toFixed(2)}`);
+        }
+        return pts.join(' ');
+      }
+
+      function typeClass(type) {
+        const t = type.toLowerCase();
+        if (t === 'landmark') return 'landmark';
+        if (t === 'base') return 'base';
+        if (t === 'standard') return 'standard';
+        return 'secret';
+      }
+
+      function saveExplored() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([...exploredSet]));
+      }
+
+      function setHexExplored(key, explored) {
+        const hex = gridG.querySelector(`[data-key='${key}']`);
+        if (!hex) return;
+        hex.classList.toggle('explored', explored);
+        if (explored) exploredSet.add(key);
+        else exploredSet.delete(key);
+        saveExplored();
+        if (selectedHexKey === key) updateModalStatus();
+      }
+
+      function toggleHexExplored(key) {
+        setHexExplored(key, !exploredSet.has(key));
+      }
+
+      function updateModalStatus() {
+        const explored = exploredSet.has(selectedHexKey);
+        modalStatus.textContent = `Exploration: ${explored ? 'Explored' : 'Unexplored'}`;
+        toggleExploredBtn.textContent = explored ? 'Mark Unexplored' : 'Mark Explored';
+      }
+
+      function showHexModal(row, col) {
+        selectedHexKey = `${row},${col}`;
+        const loc = locationByKey.get(selectedHexKey);
+        if (loc) {
+          modalTitle.textContent = `${loc.code} — ${loc.name}`;
+          modalMeta.textContent = `Hex R${row} C${col} • ${loc.type} • ${loc.status}`;
+          modalNotes.innerHTML = `<strong>GM Notes:</strong> ${loc.notes}`;
+        } else {
+          modalTitle.textContent = `Unnamed Hex`;
+          modalMeta.textContent = `Hex R${row} C${col}`;
+          modalNotes.innerHTML = `<span class="muted">No keyed location here yet. Use this as wilderness travel space.</span>`;
+        }
+        updateModalStatus();
+        modal.style.display = 'flex';
+      }
+
+      function drawHexGrid() {
+        for (let row = 1; row <= ROWS; row++) {
+          for (let col = 1; col <= COLS; col++) {
+            const { x, y } = hexCenter(row, col);
+            const key = `${row},${col}`;
+            const poly = el('polygon', {
+              points: hexPoints(x, y),
+              class: 'hex',
+              'data-row': row,
+              'data-col': col,
+              'data-key': key
+            });
+            if (exploredSet.has(key)) poly.classList.add('explored');
+            poly.addEventListener('click', (evt) => {
+              evt.stopPropagation();
+              showHexModal(row, col);
+            });
+            gridG.append(poly);
+          }
+        }
+      }
+
+      function drawFoothills() {
+        for (let row = 8; row <= 18; row++) {
+          for (let col = 1; col <= 3; col++) {
+            const { x, y } = hexCenter(row, col);
+            terrainG.append(el('polygon', { points: hexPoints(x, y, HEX_SIZE * 0.95), class: 'terrain-foothills' }));
+          }
+        }
+        for (let row = 15; row <= 20; row++) {
+          for (let col = 18; col <= 24; col++) {
+            const { x, y } = hexCenter(row, col);
+            terrainG.append(el('polygon', { points: hexPoints(x, y, HEX_SIZE * 0.95), class: 'terrain-foothills' }));
+          }
+        }
+      }
+
+      function drawRoutesAndRiver() {
+        const riverPts = [hexCenter(4, 10), hexCenter(5, 10), hexCenter(6, 11), hexCenter(7, 11), hexCenter(8, 12), hexCenter(10, 12), hexCenter(12, 13), hexCenter(14, 13), hexCenter(16, 14), hexCenter(18, 14)];
+        const d = riverPts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+        routesG.append(el('path', { d, class: 'river' }));
+
+        const bright = hexCenter(3, 5);
+        const watch = hexCenter(5, 7);
+        routesG.append(el('line', { x1: bright.x, y1: bright.y, x2: watch.x, y2: watch.y, class: 'road-main' }));
+
+        const down1 = hexCenter(6, 7);
+        const down2 = hexCenter(7, 8);
+        const down3 = hexCenter(8, 8);
+        routesG.append(el('polyline', {
+          points: `${watch.x},${watch.y} ${down1.x},${down1.y} ${down2.x},${down2.y} ${down3.x},${down3.y}`,
+          class: 'road-fade'
+        }));
+      }
+
+      function drawIronCollarOverlay() {
+        for (let row = 8; row <= 14; row++) {
+          for (let col = 10; col <= 16; col++) {
+            const { x, y } = hexCenter(row, col);
+            overlayG.append(el('polygon', {
+              points: hexPoints(x, y, HEX_SIZE * 0.98),
+              fill: 'var(--overlay-red)'
+            }));
+          }
+        }
+      }
+
+      function drawLocations() {
+        keyedLocations.forEach((loc) => {
+          const { x, y } = hexCenter(loc.row, loc.col);
+          const g = el('g', { class: 'poi' });
+          g.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            showHexModal(loc.row, loc.col);
+          });
+
+          g.append(el('circle', { cx: x, cy: y, r: 6.5, class: `poi ${typeClass(loc.type)} poi-ring` }));
+
+          if (loc.code === 'W1') {
+            g.append(el('circle', { cx: x, cy: y, r: 11, class: 'highlight' }));
+          }
+
+          const text = el('text', { x: x + 9, y: y - 9, class: 'label' });
+          text.textContent = loc.code === 'CR1' || loc.code === 'W1' ? `${loc.name} (${loc.code})` : loc.code;
+          labelsG.append(text);
+          poiG.append(g);
+        });
+
+        const haven = hexCenter(2, 3);
+        const havenLabel = el('text', { x: haven.x - 10, y: haven.y - 12, class: 'label' });
+        havenLabel.textContent = 'Haven (off-map ref)';
+        labelsG.append(havenLabel);
+      }
+
+      drawFoothills();
+      drawHexGrid();
+      drawRoutesAndRiver();
+      drawIronCollarOverlay();
+      drawLocations();
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.style.display = 'none';
+      });
+      document.getElementById('closeModalBtn').addEventListener('click', () => modal.style.display = 'none');
+      toggleExploredBtn.addEventListener('click', () => {
+        if (selectedHexKey) toggleHexExplored(selectedHexKey);
+      });
+
+      document.getElementById('toggleOverlayBtn').addEventListener('click', () => {
+        overlayVisible = !overlayVisible;
+        overlayG.style.display = overlayVisible ? 'block' : 'none';
+      });
+
+      document.getElementById('clearExploredBtn').addEventListener('click', () => {
+        [...exploredSet].forEach((key) => setHexExplored(key, false));
+      });
+
+      let scale = 1;
+      let translateX = 0;
+      let translateY = 0;
+      let isDragging = false;
+      let pointerId = null;
+      let startX = 0;
+      let startY = 0;
+      let startTX = 0;
+      let startTY = 0;
+
+      function applyTransform() {
+        rootG.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+        rootG.style.transformOrigin = '0 0';
+        rootG.style.transition = isDragging ? 'none' : 'transform 0.16s ease-out';
+      }
+
+      mapWrap.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = -Math.sign(e.deltaY) * 0.12;
+        const next = Math.max(0.55, Math.min(3.2, scale + delta));
+        const rect = mapWrap.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const ratio = next / scale;
+        translateX = mx - (mx - translateX) * ratio;
+        translateY = my - (my - translateY) * ratio;
+        scale = next;
+        applyTransform();
+      }, { passive: false });
+
+      mapWrap.addEventListener('pointerdown', (e) => {
+        isDragging = true;
+        pointerId = e.pointerId;
+        startX = e.clientX;
+        startY = e.clientY;
+        startTX = translateX;
+        startTY = translateY;
+        mapWrap.setPointerCapture(pointerId);
+        applyTransform();
+      });
+
+      mapWrap.addEventListener('pointermove', (e) => {
+        if (!isDragging || e.pointerId !== pointerId) return;
+        translateX = startTX + (e.clientX - startX);
+        translateY = startTY + (e.clientY - startY);
+        applyTransform();
+      });
+
+      function stopDrag(e) {
+        if (e.pointerId !== pointerId) return;
+        isDragging = false;
+        applyTransform();
+      }
+
+      mapWrap.addEventListener('pointerup', stopDrag);
+      mapWrap.addEventListener('pointercancel', stopDrag);
+
+      document.getElementById('resetViewBtn').addEventListener('click', () => {
+        scale = 1;
+        translateX = 0;
+        translateY = 0;
+        applyTransform();
+      });
+
+      document.getElementById('exportBtn').addEventListener('click', () => {
+        const serializer = new XMLSerializer();
+        const clone = svg.cloneNode(true);
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        clone.setAttribute('width', mapWrap.clientWidth);
+        clone.setAttribute('height', mapWrap.clientHeight);
+        const blob = new Blob([serializer.serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = mapWrap.clientWidth * 2;
+          canvas.height = mapWrap.clientHeight * 2;
+          const ctx = canvas.getContext('2d');
+          ctx.scale(2, 2);
+          ctx.fillStyle = '#F5EEE6';
+          ctx.fillRect(0, 0, mapWrap.clientWidth, mapWrap.clientHeight);
+          ctx.drawImage(img, 0, 0, mapWrap.clientWidth, mapWrap.clientHeight);
+          URL.revokeObjectURL(url);
+          const a = document.createElement('a');
+          a.href = canvas.toDataURL('image/png');
+          a.download = 'CotCR_HexMap.png';
+          a.click();
+        };
+        img.src = url;
+      });
+
+      svg.addEventListener('click', () => { modal.style.display = 'none'; });
+      applyTransform();
+    })();
+  </script>
+</body>
+</html>
