@@ -319,8 +319,27 @@
       const quickRouteSummary = document.getElementById('quickRouteSummary');
       const terrainNoteInput = document.getElementById('terrainNoteInput');
 
-      const exploredSet = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
-      let viewMode = localStorage.getItem(VIEW_MODE_KEY) || 'gm';
+      function getStoredArray(key) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function getStoredText(key, fallback = '') {
+        try {
+          return localStorage.getItem(key) || fallback;
+        } catch {
+          return fallback;
+        }
+      }
+
+      const exploredSet = new Set(getStoredArray(STORAGE_KEY));
+      let viewMode = getStoredText(VIEW_MODE_KEY, 'gm');
       let selectedHexKey = null;
 
       const keyedLocations = [
@@ -417,11 +436,19 @@
       }
 
       function saveExplored() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([...exploredSet]));
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify([...exploredSet]));
+        } catch {
+          // Storage can be blocked in some file:// or privacy-hardened contexts.
+        }
       }
 
       function saveViewMode() {
-        localStorage.setItem(VIEW_MODE_KEY, viewMode);
+        try {
+          localStorage.setItem(VIEW_MODE_KEY, viewMode);
+        } catch {
+          // Storage can be blocked in some file:// or privacy-hardened contexts.
+        }
       }
 
       function updateViewModeButton() {
