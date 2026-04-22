@@ -661,6 +661,14 @@
         const fitScale = Math.min(rect.width / routeSpanX, rect.height / routeSpanY);
         scale = Math.max(0.55, Math.min(3.2, fitScale));
         const midpoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+      function centerCameraOnRoute(fromLoc, toLoc) {
+        const from = hexCenter(fromLoc.row, fromLoc.col);
+        const to = hexCenter(toLoc.row, toLoc.col);
+        const midpoint = {
+          x: (from.x + to.x) / 2,
+          y: (from.y + to.y) / 2
+        };
+        const rect = mapWrap.getBoundingClientRect();
         translateX = rect.width / 2 - midpoint.x * scale;
         translateY = rect.height / 2 - midpoint.y * scale;
         applyTransform();
@@ -689,6 +697,9 @@
           <strong>${fromLoc.code} → ${toLoc.code}</strong> (${fromLoc.name} to ${toLoc.name}) · ${hexes} hexes (${miles} mi) · ${normalDays} days normal
           <div class="small">Fast: ${fastDays} days · Slow: ${slowDays} days</div>
           <div class="small route-note"><strong>Terrain-adjusted note:</strong> ${note || '<em>Add a terrain note above.</em>'}</div>
+          <strong>${fromLoc.code} → ${toLoc.code}</strong> · ${hexes} hexes (${miles} mi) · ${normalDays} days normal
+          <div class="small">Fast: ${fastDays} days · Slow: ${slowDays} days</div>
+          <div class="small"><strong>Terrain-adjusted note:</strong> ${note || '<em>Add a terrain note above.</em>'}</div>
         `;
       }
 
