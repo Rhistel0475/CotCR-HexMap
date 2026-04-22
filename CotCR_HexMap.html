@@ -96,6 +96,10 @@
       font-size: 0.85rem;
     }
 
+    .route-summary .route-note {
+      margin-top: 0.2rem;
+    }
+
     #mapWrap {
       flex: 1;
       position: relative;
@@ -369,11 +373,12 @@
       const terrainG = el('g');
       const gridG = el('g');
       const routesG = el('g');
+      const quickRouteG = el('g');
       const overlayG = el('g');
       const poiG = el('g');
       const labelsG = el('g');
 
-      rootG.append(terrainG, gridG, routesG, overlayG, poiG, labelsG);
+      rootG.append(terrainG, gridG, routesG, quickRouteG, overlayG, poiG, labelsG);
       svg.append(rootG);
 
       let overlayVisible = false;
@@ -603,6 +608,32 @@
         return (distanceMiles / paceMilesPerDay[pace]).toFixed(1);
       }
 
+      function drawQuickRouteLine(fromLoc, toLoc) {
+        quickRouteG.replaceChildren();
+        const from = hexCenter(fromLoc.row, fromLoc.col);
+        const to = hexCenter(toLoc.row, toLoc.col);
+        quickRouteG.append(el('line', {
+          x1: from.x,
+          y1: from.y,
+          x2: to.x,
+          y2: to.y,
+          stroke: '#b64040',
+          'stroke-width': 4,
+          'stroke-dasharray': '9 6',
+          'stroke-linecap': 'round',
+          opacity: 0.95
+        }));
+      }
+
+      function centerCameraOnRoute(fromLoc, toLoc) {
+        const from = hexCenter(fromLoc.row, fromLoc.col);
+        const to = hexCenter(toLoc.row, toLoc.col);
+        const rect = mapWrap.getBoundingClientRect();
+        const routeSpanX = Math.abs(from.x - to.x) + HEX_SIZE * 4;
+        const routeSpanY = Math.abs(from.y - to.y) + HEX_SIZE * 4;
+        const fitScale = Math.min(rect.width / routeSpanX, rect.height / routeSpanY);
+        scale = Math.max(0.55, Math.min(3.2, fitScale));
+        const midpoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
       function centerCameraOnRoute(fromLoc, toLoc) {
         const from = hexCenter(fromLoc.row, fromLoc.col);
         const to = hexCenter(toLoc.row, toLoc.col);
@@ -636,6 +667,9 @@
         const slowDays = daysAtPace(miles, 'slow');
         const note = terrainNoteInput.value.trim();
         quickRouteSummary.innerHTML = `
+          <strong>${fromLoc.code} → ${toLoc.code}</strong> (${fromLoc.name} to ${toLoc.name}) · ${hexes} hexes (${miles} mi) · ${normalDays} days normal
+          <div class="small">Fast: ${fastDays} days · Slow: ${slowDays} days</div>
+          <div class="small route-note"><strong>Terrain-adjusted note:</strong> ${note || '<em>Add a terrain note above.</em>'}</div>
           <strong>${fromLoc.code} → ${toLoc.code}</strong> · ${hexes} hexes (${miles} mi) · ${normalDays} days normal
           <div class="small">Fast: ${fastDays} days · Slow: ${slowDays} days</div>
           <div class="small"><strong>Terrain-adjusted note:</strong> ${note || '<em>Add a terrain note above.</em>'}</div>
@@ -647,6 +681,7 @@
         activeQuickRoute = preset;
         if (!preset) {
           terrainNoteInput.value = '';
+          quickRouteG.replaceChildren();
           updateQuickRouteSummary(null);
           return;
         }
@@ -657,6 +692,7 @@
           return;
         }
         terrainNoteInput.value = preset.terrainNote || '';
+        drawQuickRouteLine(fromLoc, toLoc);
         centerCameraOnRoute(fromLoc, toLoc);
         updateQuickRouteSummary(preset);
       }
@@ -680,6 +716,7 @@
         applyQuickRoutePreset(e.target.value);
       });
       terrainNoteInput.addEventListener('input', () => {
+        if (activeQuickRoute) activeQuickRoute.terrainNote = terrainNoteInput.value;
         updateQuickRouteSummary(activeQuickRoute);
       });
 
