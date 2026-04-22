@@ -20,6 +20,10 @@
     body {
       margin: 0;
       font-family: Georgia, "Times New Roman", serif;
+      background:
+        radial-gradient(circle at 20% 30%, rgba(144, 168, 118, 0.22) 0%, rgba(144, 168, 118, 0) 45%),
+        radial-gradient(circle at 70% 75%, rgba(170, 150, 104, 0.18) 0%, rgba(170, 150, 104, 0) 42%),
+        radial-gradient(circle at 15% 10%, #f5efe5 0%, #efe5d6 55%, #e8dccb 100%);
       background: radial-gradient(circle at 15% 10%, #fff8f0 0%, var(--parchment) 45%, #ece2d4 100%);
       color: var(--ink);
       min-height: 100vh;
@@ -127,6 +131,12 @@
       pointer-events: none;
     }
 
+    .wilderness-base {
+      fill: url(#wildernessTexture);
+      opacity: 0.32;
+      pointer-events: none;
+    }
+
     .poi { cursor: pointer; }
     .poi.base { fill: #2f9e44; }
     .poi.landmark { fill: #d4a019; }
@@ -209,6 +219,7 @@
     <h1>Crown of the Crystalmir Reaches — Campaign Hex Map (24×20, 12 mi/hex)</h1>
     <div class="controls">
       <button id="resetViewBtn">Reset View</button>
+      <button id="toggleViewModeBtn">Switch to Player View</button>
       <button id="toggleOverlayBtn">Toggle Iron Collar Overlay</button>
       <button id="clearExploredBtn">Clear Explored</button>
       <button id="exportBtn">Export PNG</button>
@@ -250,6 +261,7 @@
       const HEX_SIZE = 28;
       const SQRT3 = Math.sqrt(3);
       const STORAGE_KEY = 'cotcr_explored_hexes_v1';
+      const VIEW_MODE_KEY = 'cotcr_view_mode_v1';
 
       const svg = document.getElementById('mapSvg');
       const mapWrap = document.getElementById('mapWrap');
@@ -261,6 +273,7 @@
       const toggleExploredBtn = document.getElementById('toggleExploredBtn');
 
       const exploredSet = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
+      let viewMode = localStorage.getItem(VIEW_MODE_KEY) || 'gm';
       let selectedHexKey = null;
 
       const keyedLocations = [
@@ -348,6 +361,31 @@
 
       function saveExplored() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify([...exploredSet]));
+      }
+
+      function saveViewMode() {
+        localStorage.setItem(VIEW_MODE_KEY, viewMode);
+      }
+
+      function updateViewModeButton() {
+        const button = document.getElementById('toggleViewModeBtn');
+        button.textContent = viewMode === 'gm' ? 'Switch to Player View' : 'Switch to GM View';
+      }
+
+      function applyViewModeToLocations() {
+        const hideUndiscovered = viewMode === 'player';
+        [...poiG.children].forEach((node) => {
+          if (!(node instanceof SVGGElement)) return;
+          const isUndiscovered = node.dataset.status === 'Undiscovered';
+          node.style.display = hideUndiscovered && isUndiscovered ? 'none' : '';
+        });
+        [...labelsG.children].forEach((node) => {
+          if (!(node instanceof SVGTextElement)) return;
+          const status = node.dataset.status;
+          if (!status) return; // keep non-POI labels (e.g., Haven ref)
+          const isUndiscovered = status === 'Undiscovered';
+          node.style.display = hideUndiscovered && isUndiscovered ? 'none' : '';
+        });
       }
 
       function setHexExplored(key, explored) {
@@ -457,6 +495,7 @@
         keyedLocations.forEach((loc) => {
           const { x, y } = hexCenter(loc.row, loc.col);
           const g = el('g', { class: 'poi' });
+          g.dataset.status = loc.status;
           g.addEventListener('click', (evt) => {
             evt.stopPropagation();
             showHexModal(loc.row, loc.col);
@@ -470,6 +509,7 @@
 
           const text = el('text', { x: x + 9, y: y - 9, class: 'label' });
           text.textContent = loc.code === 'CR1' || loc.code === 'W1' ? `${loc.name} (${loc.code})` : loc.code;
+          text.dataset.status = loc.status;
           labelsG.append(text);
           poiG.append(g);
         });
@@ -480,11 +520,35 @@
         labelsG.append(havenLabel);
       }
 
+      function drawWildernessTexture() {
+        const defs = el('defs');
+        const pattern = el('pattern', {
+          id: 'wildernessTexture',
+          patternUnits: 'userSpaceOnUse',
+          width: 70,
+          height: 70
+        });
+        pattern.append(
+          el('rect', { x: 0, y: 0, width: 70, height: 70, fill: '#b9c79a' }),
+          el('circle', { cx: 14, cy: 13, r: 10, fill: '#a6ba86', opacity: 0.55 }),
+          el('circle', { cx: 50, cy: 22, r: 11, fill: '#c3b089', opacity: 0.42 }),
+          el('circle', { cx: 30, cy: 50, r: 13, fill: '#99ad78', opacity: 0.48 }),
+          el('path', { d: 'M2 44 C 10 36, 22 36, 32 45', stroke: '#8ea26f', 'stroke-width': 1, fill: 'none', opacity: 0.4 }),
+          el('path', { d: 'M38 62 C 46 55, 56 56, 66 63', stroke: '#b39d72', 'stroke-width': 1, fill: 'none', opacity: 0.35 })
+        );
+        defs.append(pattern);
+        svg.append(defs);
+        terrainG.append(el('rect', { x: 0, y: 0, width: mapWidth, height: mapHeight, class: 'wilderness-base' }));
+      }
+
+      drawWildernessTexture();
       drawFoothills();
       drawHexGrid();
       drawRoutesAndRiver();
       drawIronCollarOverlay();
       drawLocations();
+      updateViewModeButton();
+      applyViewModeToLocations();
 
       modal.addEventListener('click', (e) => {
         if (e.target === modal) modal.style.display = 'none';
@@ -497,6 +561,13 @@
       document.getElementById('toggleOverlayBtn').addEventListener('click', () => {
         overlayVisible = !overlayVisible;
         overlayG.style.display = overlayVisible ? 'block' : 'none';
+      });
+
+      document.getElementById('toggleViewModeBtn').addEventListener('click', () => {
+        viewMode = viewMode === 'gm' ? 'player' : 'gm';
+        saveViewMode();
+        updateViewModeButton();
+        applyViewModeToLocations();
       });
 
       document.getElementById('clearExploredBtn').addEventListener('click', () => {
